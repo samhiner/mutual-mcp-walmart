@@ -57,14 +57,21 @@ export async function getBrowserContext(headless = true): Promise<BrowserContext
     ],
   });
 
+  /**
+   * No fingerprint overrides.
+   *
+   * This used to claim a macOS Chrome 120 user agent, an America/Chicago
+   * timezone and a Chicago geolocation — on whatever machine it happened to be
+   * running. patchright's whole purpose is to look like a real browser, and
+   * pinning those hands the site a browser that says it is a Mac in Illinois
+   * while its TLS handshake, fonts, screen and clock all say otherwise. An
+   * inconsistent fingerprint is a stronger signal than no override at all, and
+   * this ran straight into a press-and-hold bot check.
+   *
+   * The viewport is kept because it is about what renders, not about identity.
+   */
   contextInstance = await browserInstance.newContext({
-    userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     viewport: { width: 1280, height: 800 },
-    locale: "en-US",
-    timezoneId: "America/Chicago",
-    geolocation: { latitude: 41.8781, longitude: -87.6298 }, // Chicago
-    permissions: ["geolocation"],
   });
 
   // Restore saved cookies

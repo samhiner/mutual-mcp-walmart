@@ -6,7 +6,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Page } from "playwright";
-import { withPage, navigateToWalmart, saveSessionCookies, getBrowserContext } from "./browser.js";
+import { withPage, navigateToWalmart, saveSessionCookies, getBrowserContext, closeBrowser } from "./browser.js";
 import {
   isLoggedIn,
   loadAuth,
@@ -1209,6 +1209,15 @@ async function handleGetOrders(limit: number) {
  * `waitForSelector` on the account element gives up in the middle of it.
  */
 async function handleWaitForLogin(timeoutSeconds: number) {
+  /**
+   * Close whatever is cached before asking for a visible browser.
+   *
+   * `getBrowserContext` returns its cached context and ignores the `headless`
+   * argument entirely, so any earlier call — a status check, say — leaves a
+   * headless browser behind and this would poll an invisible page forever
+   * while the user waits for a window that never comes.
+   */
+  await closeBrowser();
   const context = await getBrowserContext(false);
   const page = await context.newPage();
 
