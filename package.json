@@ -33,6 +33,7 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "playwright": "npm:patchright@^1.62.2",
     "patchright": "^1.58.2",
     "playwright-extra": "^4.3.6"
   },
