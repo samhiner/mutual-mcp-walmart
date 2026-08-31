@@ -2,7 +2,7 @@ import { chromium, Browser, BrowserContext, Page } from "playwright";
 import { loadCookies, saveCookies } from "./session.js";
 
 // Stealth script to patch common bot-detection vectors
-const STEALTH_INIT_SCRIPT = `
+const _RETIRED_STEALTH_INIT_SCRIPT = `
   // Remove webdriver flag
   Object.defineProperty(navigator, 'webdriver', {
     get: () => undefined,
@@ -86,7 +86,21 @@ export async function getBrowserContext(headless = true): Promise<BrowserContext
 export async function getPage(): Promise<Page> {
   const ctx = await getBrowserContext();
   const page = await ctx.newPage();
-  await page.addInitScript(STEALTH_INIT_SCRIPT);
+  /**
+   * No hand-rolled stealth script.
+   *
+   * There used to be an `addInitScript` here redefining `navigator.webdriver`,
+   * `plugins` and `languages` and deleting the `cdc_` properties. It is the
+   * single most damaging thing in this file: measured against Costco, the same
+   * request returns "Access Denied" with the script and twenty-four prices
+   * without it.
+   *
+   * patchright already handles all of this below the JavaScript layer. Doing it
+   * again *in* JavaScript is worse than not doing it: a redefined property is
+   * not a native one — the descriptor differs, `toString` differs, and the
+   * redefinition is itself the signal. Two stealth implementations fighting
+   * produce a fingerprint neither would alone.
+   */
   return page;
 }
 
@@ -114,7 +128,6 @@ export async function withPage<T>(
 ): Promise<T> {
   const ctx = await getBrowserContext(headless);
   const page = await ctx.newPage();
-  await page.addInitScript(STEALTH_INIT_SCRIPT);
   try {
     const result = await fn(page);
     await saveSessionCookies();
