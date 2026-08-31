@@ -1228,10 +1228,25 @@ const AUTH_COOKIES = [
   "_auth",
 ];
 
-async function hasAuthCookie(context: BrowserContext): Promise<boolean> {
+/**
+ * Has a *new* auth cookie appeared since the window opened?
+ *
+ * The delta is what matters, not the name. Target hands `login-session` to
+ * anonymous visitors, so a name-only check matched before the user had typed
+ * anything — the tool reported success and the browser was closed on them
+ * mid-form. A cookie that was not there when we opened the page and is there
+ * now is the only thing that reliably means "they just signed in".
+ */
+async function gainedAuthCookie(
+  context: BrowserContext,
+  before: Set<string>,
+): Promise<boolean> {
   const cookies = await context.cookies().catch(() => []);
-  return cookies.some((cookie) =>
-    AUTH_COOKIES.some((name) => cookie.name.startsWith(name) && cookie.value),
+  return cookies.some(
+    (cookie) =>
+      cookie.value &&
+      !before.has(cookie.name) &&
+      AUTH_COOKIES.some((name) => cookie.name.startsWith(name)),
   );
 }
 
@@ -1254,9 +1269,16 @@ async function handleWaitForLogin(timeoutSeconds: number) {
       timeout: 60000,
     });
 
+    /**
+     * The baseline is taken here, with the window already open and the user
+     * not yet signed in — so anything matching later genuinely arrived with
+     * the sign-in.
+     */
+    const before = new Set((await context.cookies().catch(() => [])).map((c) => c.name));
+
     const deadline = Date.now() + Math.max(30, timeoutSeconds) * 1000;
     while (Date.now() < deadline) {
-      if (await hasAuthCookie(context)) {
+      if (await gainedAuthCookie(context, before)) {
         // Only a call that succeeds writes the session to disk, so this is the
         // step that makes the login survive the process.
         await saveSessionCookies();
