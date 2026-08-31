@@ -133,7 +133,7 @@ export async function closeBrowser(): Promise<void> {
 
 export async function withPage<T>(
   fn: (page: Page) => Promise<T>,
-  headless = true
+  headless = process.env.WALMART_HEADLESS !== "false"
 ): Promise<T> {
   const ctx = await getBrowserContext(headless);
   const page = await ctx.newPage();
