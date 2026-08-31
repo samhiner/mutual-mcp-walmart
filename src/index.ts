@@ -513,6 +513,29 @@ async function handleSearch(
         { timeout: 15000 }
       );
     } catch {
+      /**
+       * A bot challenge is not an empty shelf, and must never read like one.
+       *
+       * Walmart redirects a session it distrusts to `/blocked` — "Robot or
+       * human? Activate and hold the button" — and the grid selector then
+       * never appears. Reported as "no products found", that is
+       * indistinguishable from a search that genuinely matched nothing, which
+       * is the failure that hides longest.
+       *
+       * Measured: the same request succeeds from a fresh context and is blocked
+       * with the saved cookies, so it is the *session* that is distrusted
+       * rather than the machine. Completing the hold once, uninterrupted,
+       * clears it.
+       */
+      const blocked = await page
+        .evaluate(() => /\/blocked|Robot or human/i.test(location.href + document.title))
+        .catch(() => false);
+      if (blocked) {
+        return err(
+          "Walmart is showing its 'Robot or human' check for this session. " +
+            "Open Walmart, complete the press-and-hold once, and the session clears.",
+        );
+      }
       return err("No products found or page failed to load");
     }
 
@@ -1279,9 +1302,20 @@ async function handleWaitForLogin(timeoutSeconds: number) {
     const deadline = Date.now() + Math.max(30, timeoutSeconds) * 1000;
     while (Date.now() < deadline) {
       if (await gainedAuthCookie(context, before)) {
-        // Only a call that succeeds writes the session to disk, so this is the
-        // step that makes the login survive the process.
+        /**
+         * Both files, or the server does not believe its own session.
+         *
+         * `isLoggedIn()` is `cookies.json && auth.json`, and every tool that
+         * guards on it refuses without the second — so saving only cookies
+         * produced a server holding a perfectly good session that answered
+         * "Not logged in. Use the `login` tool first." to every request.
+         *
+         * The email is empty on purpose: this path never asks for one, because
+         * asking would mean routing a credential through a tool call. Nothing
+         * reads the field; `isLoggedIn` only checks that the file is there.
+         */
         await saveSessionCookies();
+        saveAuth({ email: "", loggedInAt: new Date().toISOString(), name: "browser sign-in" });
         return ok("Signed in. Session saved.");
       }
       await page.waitForTimeout(2500);
