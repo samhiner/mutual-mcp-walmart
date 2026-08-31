@@ -36,6 +36,19 @@ server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => ({
             },
         },
         {
+            name: "wait_for_login",
+            description: "Open a visible browser at the sign-in page and wait for the user to sign in themselves, then save the session. Takes no credentials: the password is typed into the site, never passed through a tool.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    timeoutSeconds: {
+                        type: "number",
+                        description: "How long to wait for the sign-in to complete (default: 240).",
+                    },
+                },
+            },
+        },
+        {
             name: "logout",
             description: "Clear Walmart session and stored cookies",
             inputSchema: { type: "object", properties: {}, required: [] },
@@ -195,6 +208,8 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
                 return await handleStatus();
             case "login":
                 return await handleLogin(a.email, a.password, a.headless !== false);
+            case "wait_for_login":
+                return await handleWaitForLogin(Number(a.timeoutSeconds ?? 240));
             case "logout":
                 return await handleLogout();
             case "set_address":
@@ -846,6 +861,44 @@ async function handleGetOrders(limit) {
     });
 }
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+/**
+ * Wait for the user to sign in, then keep the session.
+ *
+ * `login` requires an email and a password through the tool call, which means
+ * the only way to use it is to route someone's password through a model. This
+ * is the alternative the ubereats fork already established: open a window at
+ * the sign-in page, let the person type into the site itself, and persist what
+ * comes back.
+ *
+ * Polling rather than waiting on a selector once, because sign-in on these
+ * sites is several pages — email, password, sometimes a code — and a single
+ * `waitForSelector` on the account element gives up in the middle of it.
+ */
+async function handleWaitForLogin(timeoutSeconds) {
+    const context = await (0, browser_js_1.getBrowserContext)(false);
+    const page = await context.newPage();
+    try {
+        await page.goto("https://www.walmart.com/account/login", {
+            waitUntil: "domcontentloaded",
+            timeout: 60000,
+        });
+        const deadline = Date.now() + Math.max(30, timeoutSeconds) * 1000;
+        while (Date.now() < deadline) {
+            const marker = await page.$('[data-automation-id="account-name"], [link-identifier="Account"], [class*="AccountName"]').catch(() => null);
+            if (marker) {
+                // Only a call that succeeds writes the session to disk, so this is the
+                // step that makes the login survive the process.
+                await (0, browser_js_1.saveSessionCookies)();
+                return ok("Signed in. Session saved.");
+            }
+            await page.waitForTimeout(2000);
+        }
+        return err("Timed out waiting for sign-in. The browser is still open — call this again once signed in.");
+    }
+    finally {
+        await page.close().catch(() => { });
+    }
+}
 function ok(text) {
     return { content: [{ type: "text", text }] };
 }
