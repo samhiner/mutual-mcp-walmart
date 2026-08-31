@@ -43,7 +43,16 @@ const _RETIRED_STEALTH_INIT_SCRIPT = `
 let browserInstance: Browser | null = null;
 let contextInstance: BrowserContext | null = null;
 
-export async function getBrowserContext(headless = true): Promise<BrowserContext> {
+/**
+ * Headless is a choice the caller rarely wants here.
+ *
+ * Measured against the live site: headless serves its 'Robot or human?' press-and-hold page, while the identical
+ * request from a visible browser returns a full page of products. So the
+ * default is still upstream's, and mutual passes WALMART_HEADLESS=false.
+ */
+export async function getBrowserContext(
+  headless = process.env.WALMART_HEADLESS !== "false",
+): Promise<BrowserContext> {
   if (contextInstance) return contextInstance;
 
   browserInstance = await chromium.launch({
