@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Page } from "playwright";
+import { Page, BrowserContext } from "playwright";
 import { withPage, navigateToWalmart, saveSessionCookies, getBrowserContext, closeBrowser } from "./browser.js";
 import {
   isLoggedIn,
@@ -1208,6 +1208,33 @@ async function handleGetOrders(limit: number) {
  * sites is several pages — email, password, sometimes a code — and a single
  * `waitForSelector` on the account element gives up in the middle of it.
  */
+/**
+ * Watch the cookies, not the page.
+ *
+ * Two ways of asking "are they signed in yet" were tried first and both were
+ * wrong. Amazon's status check navigates to the homepage, so polling it every
+ * few seconds dragged the user off the sign-in form again and again — signing
+ * in was impossible while it ran. Costco's DOM check simply never matched, so a
+ * sign-in that had plainly worked was reported as a timeout.
+ *
+ * A cookie is what a session actually *is*. Reading them touches nothing, and
+ * it does not matter which page, tab or redirect the person is on while they
+ * type. The names below were observed appearing on sign-in and absent before
+ * it, rather than guessed.
+ */
+const AUTH_COOKIES = [
+  "hasAuth",
+  "customer",
+  "_auth",
+];
+
+async function hasAuthCookie(context: BrowserContext): Promise<boolean> {
+  const cookies = await context.cookies().catch(() => []);
+  return cookies.some((cookie) =>
+    AUTH_COOKIES.some((name) => cookie.name.startsWith(name) && cookie.value),
+  );
+}
+
 async function handleWaitForLogin(timeoutSeconds: number) {
   /**
    * Close whatever is cached before asking for a visible browser.
@@ -1229,14 +1256,13 @@ async function handleWaitForLogin(timeoutSeconds: number) {
 
     const deadline = Date.now() + Math.max(30, timeoutSeconds) * 1000;
     while (Date.now() < deadline) {
-      const marker = await page.$('[data-automation-id="account-name"], [link-identifier="Account"], [class*="AccountName"]').catch(() => null);
-      if (marker) {
+      if (await hasAuthCookie(context)) {
         // Only a call that succeeds writes the session to disk, so this is the
         // step that makes the login survive the process.
         await saveSessionCookies();
         return ok("Signed in. Session saved.");
       }
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(2500);
     }
 
     return err(
