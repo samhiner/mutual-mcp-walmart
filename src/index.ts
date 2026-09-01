@@ -1273,6 +1273,26 @@ async function gainedAuthCookie(
   );
 }
 
+/**
+ * Is a session already here, before anyone has typed anything?
+ *
+ * Presence, not the delta — and the two answer different questions. The delta
+ * exists because these sites hand anonymous visitors session-shaped cookies,
+ * so a *name* proves nothing on its own; only a name that was absent a moment
+ * ago means someone just signed in.
+ *
+ * But `AUTH_COOKIES` holds names verified to be absent while logged out. If one
+ * is in the jar at the moment the window opens, the session is real and there
+ * is nothing to wait for. Waiting anyway is what made signing in to an
+ * already-signed-in service take the full timeout and then report failure.
+ */
+async function hasAuthCookieNow(context: BrowserContext): Promise<boolean> {
+  const cookies = await context.cookies().catch(() => []);
+  return cookies.some(
+    (cookie) => cookie.value && AUTH_COOKIES.some((name) => cookie.name.startsWith(name)),
+  );
+}
+
 async function handleWaitForLogin(timeoutSeconds: number) {
   /**
    * Close whatever is cached before asking for a visible browser.
@@ -1298,6 +1318,20 @@ async function handleWaitForLogin(timeoutSeconds: number) {
      * the sign-in.
      */
     const before = new Set((await context.cookies().catch(() => [])).map((c) => c.name));
+
+    /**
+     * Already signed in: save what is there and say so, rather than waiting.
+     *
+     * Reported as its own outcome, not as a fresh sign-in, because they are
+     * different facts and the caller may care which. Still saved — the session
+     * may be live in the browser and not yet on disk, which is the whole reason
+     * these servers lose logins.
+     */
+    if (await hasAuthCookieNow(context)) {
+      await saveSessionCookies();
+      saveAuth({ email: "", loggedInAt: new Date().toISOString(), name: "already signed in" });
+      return ok("Already signed in. Session saved; nothing to do.");
+    }
 
     const deadline = Date.now() + Math.max(30, timeoutSeconds) * 1000;
     while (Date.now() < deadline) {
